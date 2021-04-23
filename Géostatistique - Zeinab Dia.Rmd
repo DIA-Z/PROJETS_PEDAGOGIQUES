@@ -1,0 +1,212 @@
+---
+title: "geostatistique"
+author: "DIA Zeinab"
+date: "28/12/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+rm(list=ls())
+graphics.off()
+library(geoR)
+```
+
+# chargement des packages et fonctions utilises 
+```{r}
+library(geoR)
+library(fields)
+```
+
+# chargement du fichier de donnees
+```{r cars}
+setwd("C:/Users/zizid/Documents/Projets MQME/projet de géostatistique")
+BaseNO2=read.csv("NO2-2014.csv" , sep = ";")
+View(BaseNO2)
+```
+
+```{r}
+CoordIDF=read.csv("CoordIDF.csv")
+View(CoordIDF)
+```
+
+```{r}
+str(BaseNO2)
+str(CoordIDF)
+```
+
+```{r}
+any(is.na(BaseNO2))
+```
+
+```{r}
+summary(BaseNO2)
+summary(CoordIDF)
+```
+
+
+```{r}
+BaseNO2$nbno2[BaseNO2$nbno2==0] <- NA
+BaseNO2$no2[is.na(BaseNO2$no2)] <- mean(BaseNO2$no2, na.rm = T )
+BaseNO2$nbno2[is.na(BaseNO2$nbno2)] <- mean(BaseNO2$nbno2, na.rm = T )
+
+```
+
+
+```{r}
+summary(BaseNO2)
+```
+
+```{r}
+sapply(BaseNO2, sd)  #ecart type 
+sapply(BaseNO2,quantile)# calcul du quantile
+sapply(BaseNO2,range) #calcul de l'étendue (min, max)
+```
+
+
+```{r}
+#colfunc<-colorRampPalette(c("magenta"))
+colfunc<-colorRampPalette(c("blue"))
+colors <- (colfunc(500))
+plot(CoordIDF, type = "l", xlab = "Longitude", ylab = "Latitude", asp = 1,col=colors)
+points(BaseNO2$X, BaseNO2$Y, pch = 19,col=colors)
+```
+
+
+```{r}
+#plot(BaseNO2)
+plot.geodata(BaseNO2, coords=BaseNO2[,4:5], data= BaseNO2$no2, borders =CoordIDF)
+```
+
+```{r}
+plot.geodata(BaseNO2, coords=BaseNO2[,4:5], data= BaseNO2$no2, lambda = 0, borders =CoordIDF) #log of data
+```
+
+
+
+```{r}
+#turn to geodata 
+DataGeo <- as.geodata(BaseNO2, coords.col = 4:5, data.col = 2 )
+summary(DataGeo)
+```
+
+```{r}
+plot.geodata(DataGeo,borders =CoordIDF)
+```
+
+```{r}
+plot.geodata(DataGeo, lambda = 0, borders =CoordIDF) #log of data
+```
+
+
+```{r}
+points(DataGeo, borders =CoordIDF)
+
+```
+
+```{r}
+#2a - variogramme empirique
+m.d = 50000 # distance maximale
+
+Data.vc <- variog(DataGeo, max.dist = m.d,   trend = ~BaseNO2$Type+BaseNO2$nbno2,
+                  option='cloud')
+plot(Data.vc)
+
+```
+
+```{r}
+Data.vb <- variog(DataGeo, max.dist = m.d,  trend = ~BaseNO2$Type+BaseNO2$nbno2, 
+                  option='bin')
+plot(Data.vb)
+
+```
+
+```{r}
+#dans les quatres directions, pour repérer la présence d'anisotropie
+plot(variog4(DataGeo, trend = ~BaseNO2$Type+BaseNO2$nbno2)) 
+
+```
+
+
+```{r}
+Dataenv <- variog.mc.env(DataGeo, obj = Data.vb)
+plot(Data.vb, env = Dataenv)  
+#si tous les observations tombent dans cet enveloppe =>le variogramme est pépitique  => pas de dependance spaciale.
+```
+# 2b-  Ajustement du variogramme
+
+```{r}
+#pour une estimation par moindre carré variofit. 
+DataGeo.ls<-variofit(Data.vb, cov.model="exponential",ini=c(100,30))
+summary(DataGeo.ls)
+
+```
+
+
+```{r}
+plot(Data.vb)
+lines(DataGeo.ls, col='red')
+```
+
+```{r}
+#par maximum de vraisemblance likefit
+DataGeo.ml <- likfit(DataGeo, cov.model="exponential",  ini=c(130,30))
+summary(DataGeo.ml)
+plot(Data.vb,ylim=c(100,410))
+lines(DataGeo.ml,col='red')
+```
+
+```{r}
+#pour une estimation par moindre carré variofit. 
+DataGeo.ls<-variofit(Data.vb, cov.model="exponential",ini=c(100,30))
+summary(DataGeo.ls)
+
+```
+
+```{r}
+plot(Data.vb)
+lines(DataGeo.ls, col='red')
+```
+
+
+```{r}
+
+c.m = "exponential"
+i.c = c(100,30)  #c(palier, porté)
+varioest = variofit(Data.vb,cov.model = c.m, ini=i.c , fix.nugget = F, nugget = 135)
+summary(varioest)
+plot(Data.vb)
+lines(varioest, col='red')
+```
+
+```{r}
+
+c.m = "gaussian"
+i.c = c(100,30)  #c(palier, porté)
+varioest = variofit(Data.vb,cov.model = c.m, ini=i.c , fix.nugget = F, nugget = 135)
+summary(varioest)
+plot(Data.vb)
+lines(varioest, col='red')
+```
+
+```{r}
+#3//Prediction sur de nouveaux sites: krigeage
+#Definition des sites de prediction
+
+locp<-expand.grid(seq(min(CoordIDF$X),max(CoordIDF$X),l=40),
+                  seq(min(CoordIDF$Y),max(CoordIDF$Y),l=40))
+kc=krige.conv(DataGeo,loc=locp,
+              krige=krige.control(cov.model="exponential",cov.pars=c(150, 30000)), borders = CoordIDF )
+image(kc, main="kriging estimates")
+image(kc, val=sqrt(kc$krige.var), main="kriging std. errors")
+```
+
